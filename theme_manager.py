@@ -15,7 +15,7 @@ Typora 主题仓库（在 repos.json 中注册即可，添加新仓库时自动�
      多个仓库的主题可共存互不污染
   5. installed.json 记录本仓库写入的每个文件 → 支持卸载、以及只清理本仓库文件的
      「清空重装」（清空前先备份到主题目录同级 themes-backup-<id>-<时间戳>/）
-  6. 每仓库固定一份 安装报告.md（失败路径同样写报告）
+  6. 每仓库固定一份 install-report.md（失败路径同样写报告）
 
 本地网页控制台（零框架零依赖，仅标准库）:
   python theme_manager.py            # 启动本地网页控制台(127.0.0.1，自动打开浏览器)
@@ -61,7 +61,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 CONFIG_PATH = SCRIPT_DIR / "repos.json"
 DATA_DIR = SCRIPT_DIR / "repos"
 UI_FILE = SCRIPT_DIR / "ui.html"
-REPORT_NAME = "安装报告.md"
+REPORT_NAME = "install-report.md"
 USER_AGENT = "Typora-Themes-Manager/2.0 (local; Python-urllib)"
 DEFAULT_PORT = 17888
 
@@ -390,7 +390,6 @@ MESSAGES = {
         "more_suffix": " 等",
         "no_themes_dir": "未探测到 Typora 主题目录，无法识别既有安装",
         "no_matching_css": "主题目录根没有匹配 {re} 的 CSS，本仓库视为未安装",
-        "adopted_mode": "识别本地既有安装(仅登记，未改动主题目录)",
         "adopt_manifest_created": "  本地无基准清单，已按 {tag} 资产建立（{n} 个文件）",
         "adopt_ok_msg": "识别成功：主题目录检出 {n} 个主题 CSS、共 {m} 个文件，已登记为已安装（{ver}）",
         "ver_unknown": "版本未知",
@@ -663,7 +662,6 @@ MESSAGES = {
         "more_suffix": " etc.",
         "no_themes_dir": "Typora themes directory not found; cannot adopt an existing install",
         "no_matching_css": "No CSS at the themes directory root matches {re}; this repo counts as not installed",
-        "adopted_mode": "adopted existing local install (registered only; themes directory untouched)",
         "adopt_manifest_created": "  No local baseline manifest; established from the {tag} asset ({n} files)",
         "adopt_ok_msg": "Adopted successfully: {n} theme CSS and {m} files in total detected in the themes directory; "
                         "registered as installed ({ver})",
@@ -1311,8 +1309,8 @@ class Report:
 
     def save(self, rd):
         rd.mkdir(parents=True, exist_ok=True)
-        # 固定文件名 + 清理历史变体，确保该仓库目录内最多一份报告
-        for old in rd.glob("安装报告*.md"):
+        # 固定文件名(语言无关) + 清理历史变体(含旧版中文名报告)，确保该仓库目录内最多一份报告
+        for old in list(rd.glob("install-report*.md")) + list(rd.glob("安装报告*.md")):
             if old.name != REPORT_NAME:
                 old.unlink()
         target = rd / REPORT_NAME
@@ -1864,7 +1862,7 @@ def try_adopt(cfg, zip_files=None, zip_tag=None, log=print):
     (rd / "installed.json").write_text(json.dumps({
         "version": version,
         "installed_at": old.get("installed_at") or time.strftime("%Y-%m-%d %H:%M:%S"),
-        "mode": old.get("mode") or t("adopted_mode"),
+        "mode": old.get("mode") or "adopted",
         "files": present,
     }, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if zip_files is not None and cfg.get("theme_re") and not (rd / "manifest.json").exists():

@@ -85,7 +85,7 @@ Exit codes: `0` success · `1` download/query failure · `2` security scan faile
 | `repos/<id>/manifest.json` | Baseline file list used for tamper detection |
 | `repos/<id>/installed.json` | Install record driving uninstall / clean reinstall |
 | `repos/<id>/latest.json` | Version-check cache (with ETag and fallback memory) |
-| `repos/<id>/安装报告.md` | Latest install report (one per repo, rewritten every run) |
+| `repos/<id>/install-report.md` | Latest install report (one per repo, rewritten every run) |
 
 The real Typora themes directory is detected per platform
 (`%APPDATA%\Typora\themes` on Windows,

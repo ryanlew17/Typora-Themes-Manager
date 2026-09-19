@@ -79,7 +79,7 @@ python theme_manager.py --lang en-US list      # 以英文输出（也可设 TTM
 | `repos/<id>/manifest.json` | 防投毒用的基准文件清单 |
 | `repos/<id>/installed.json` | 驱动卸载/清空重装的安装记录 |
 | `repos/<id>/latest.json` | 版本检查缓存（含 ETag 与降级探测记忆） |
-| `repos/<id>/安装报告.md` | 最近一次安装报告（每仓库一份，每次运行重写） |
+| `repos/<id>/install-report.md` | 最近一次安装报告（每仓库一份，每次运行重写；文件名固定英文） |
 
 真实的 Typora 主题目录按平台自动探测（Windows `%APPDATA%\Typora\themes`、
 macOS `~/Library/Application Support/abnerworks.Typora/themes`、

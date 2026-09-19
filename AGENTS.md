@@ -43,7 +43,7 @@
   卸载/清空重装据此精确回滚；「识别本地既有安装」也会写它，`mode` 字段标注来源，
   `version` 可为 null=版本未知）、`latest.json`（检查缓存：完整 release 投影 + `etag` +
   `asset_pattern` 降级探测记忆；检查失败只更新 `error` 字段不覆盖旧缓存）、
-  `安装报告.md`（固定名，每仓库最多一份）
+  `install-report.md`（固定名，语言无关，每仓库最多一份）
 
 ## 常用命令
 
@@ -85,7 +85,8 @@ python tools/smoke_test_release.py --version v0.1.0
 4. **installed.json 驱动卸载/清空重装**：移除范围 = 记录文件 ∪ 根目录 theme_re 匹配
    ∪ assets_dirs ∪ 本仓库桥接（桥接归属用 import 文件名判定，防止误删他仓库桥接）；
    全部约束在主题目录内，先备份后移除。清空重装**绝不动**其他仓库/用户主题。
-5. **报告在所有失败路径也要写出**（含 UI 任务），文件为 `repos/<id>/安装报告.md`。
+5. **报告在所有失败路径也要写出**（含 UI 任务），文件为 `repos/<id>/install-report.md`
+   （save 时顺带清理历史变体，含旧版中文名「安装报告*.md」）。
 6. **消息层 i18n（双语 zh-CN / en-US）**：所有用户可见文本（CLI 输出、任务日志、报告、
    HTTP 应答、result.message、前端界面）一律走字典取词——后端 `MESSAGES` + `t()`、
    前端 `I18N` + `t()`，**新增文案必须同时补两列字典，禁止硬编码中文/英文字符串**。
@@ -94,9 +95,10 @@ python tools/smoke_test_release.py --version v0.1.0
    UILanguage / Unix LANG）> 默认 zh-CN。UI 页头按钮切换：写 localStorage +
    `POST /api/lang`（变更类请求，过 `_guard_mutation` 门控）同步服务端全局
    `CURRENT_LANG`，此后该进程生成的日志/报告/消息随之切换；前端无 localStorage
-   记忆时跟随 `/api/state` 回报的服务端语言。`installed.json` 的 `mode` 等存储值
-   会被翻译（历史中文值无消费方，保留无害）。报告**文件名固定为「安装报告.md」**
-   不随语言变化，仅内容随语言。代码注释保持中文。
+   记忆时跟随 `/api/state` 回报的服务端语言。**运行时产生的文件名与 JSON 存储值
+   一律英文/语言无关**（报告固定名 `install-report.md`；`installed.json` 的 `mode`
+   取 `merge`/`clean`/`adopted`，旧版中文值无消费方、保留无害），只有报告/日志/
+   界面的**内容**随语言。代码注释保持中文。
 7. UI 安全：只绑定 127.0.0.1；变更类请求必须带 `X-Local-Tool: 1` 头且 Host 匹配
    （防浏览器跨站驱动本地接口），改动鉴权逻辑需保持等强度。
 8. **任务结果单次处理**：JobManager 给每个任务分配单调递增 `seq`，前端 pollJob 按
