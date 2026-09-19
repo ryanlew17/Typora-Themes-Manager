@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# 启动 Typora 主题管理器网页控制台（自动打开浏览器）
-# macOS: 双击本文件（首次若被拦截，右键 → 打开）；也可在终端执行 bash start-manager.command
-# 注意：本文件名必须保持纯 ASCII——macOS 双击启动 .command 时 Finder→Terminal 传递
-# 非 ASCII 文件名会被错误转码，导致 Terminal 执行乱码路径而报「文件不存在」。
-# Linux: 右键 → 在终端中运行（或先 chmod +x 后直接执行）
+# Launch the Typora Themes Manager web console (opens your browser automatically).
+# macOS: double-click this file (if blocked the first time, right-click -> Open);
+#        you can also run it in a terminal: bash start-manager.command
+# Note: keep this file name pure ASCII -- when launching a .command via double-click,
+# Finder->Terminal mangles non-ASCII file names and Terminal then fails with
+# "No such file or directory".
+# Linux: right-click -> "Run in terminal" (or chmod +x once, then execute directly)
 
 cd "$(dirname "$0")" || exit 1
 
-# 固定 Python 输出编码为 UTF-8，防止 shell 环境变量异常时中文变乱码
+# Force UTF-8 output encoding so messages never garble in odd shell environments
 export PYTHONIOENCODING=utf-8:replace
 
-# 依次探测 python3 / python，均要求 Python 3.8+
+# Probe python3 / python in order; both require Python 3.8+
 PY=""
 for c in python3 python; do
     if command -v "$c" >/dev/null 2>&1 \
@@ -22,16 +24,16 @@ done
 
 if [ -z "$PY" ]; then
     echo
-    echo "[错误] 未检测到可用的 Python 3.8+ 环境。"
-    echo "请先从 Python 官网下载安装: https://www.python.org/downloads/"
+    echo "[Error] No usable Python 3.8+ environment was detected."
+    echo "Please download and install Python from the official site first: https://www.python.org/downloads/"
     echo
-    echo "即将为您打开下载页面 ..."
+    echo "Opening the download page ..."
     if command -v open >/dev/null 2>&1; then
         open "https://www.python.org/downloads/"        # macOS
     elif command -v xdg-open >/dev/null 2>&1; then
         xdg-open "https://www.python.org/downloads/"    # Linux
     fi
-    printf "按回车键退出 ..."
+    printf "Press Enter to exit ..."
     read -r _
     exit 1
 fi
@@ -39,7 +41,7 @@ fi
 "$PY" "theme_manager.py" "$@"
 
 echo
-echo "管理器已停止。"
-printf "按回车键关闭窗口 ..."
+echo "Manager stopped."
+printf "Press Enter to close this window ..."
 read -r _
 exit 0

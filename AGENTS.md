@@ -6,7 +6,9 @@
 「下载最新 release → 简易安全检查 → 基准清单比对 → 选择性安装 → 报告」。
 自带本地网页控制台（标准库 `http.server` + 原生 JS，**零框架零依赖，刻意只用标准库，
 勿引入 pip 依赖**）。**界面/报告/输出双语（zh-CN / en-US）**，消息层 i18n 规范见
-关键设计约束 6。**git 用于版本管理与发布**：远程 `origin` 已配置
+关键设计约束 6；**本项目作为 GitHub 公开仓库，默认语言为英文**
+（`DEFAULT_LANG = "en-US"`，即无线索/未识别系统语言时的兜底；中文系统经
+系统检测仍自动获得中文界面）。**git 用于版本管理与发布**：远程 `origin` 已配置
 （github.com/ryanlew17/Typora-Themes-Manager）；历史在 v0.1.0 发布时**重新初始化**
 （旧开发历史不保留），此后正常提交/推送。`repos/` 运行数据已被 `.gitignore`
 完全排除、不入库；其数据出问题直接删除即可，库内文件仍可
@@ -32,7 +34,8 @@
 - `dist/` — 打包产物输出目录（gitignore 排除，不提交）
 - `start-manager.bat` / `start-manager.command` — 双击启动脚本（Windows / macOS+Linux）：
   探测 Python 3.8+（先 py 启动器后 python，微软商店占位程序与低版本视为未安装），
-  无环境时中文报错并自动打开 python.org 下载页，结尾 pause/read 防止窗口闪退
+  无环境时英文报错并自动打开 python.org 下载页，结尾 pause/read 防止窗口闪退；
+  **两脚本注释与输出全英文（纯 ASCII）**——面向公开仓库的各语言用户
 - `repos.json` — 仓库注册表：`settings.keep_zips` + `settings.lang`（UI 切换语言时
   持久化于此）+ `repos`（**以 id 为键的有序字典**；
   旧列表格式由 `load_config` 自动迁移并回写）。每仓库配置 css_dir / theme_re /
@@ -92,7 +95,8 @@ python tools/smoke_test_release.py --version v0.1.0
    前端 `I18N` + `t()`，**新增文案必须同时补两列字典，禁止硬编码中文/英文字符串**。
    语言解析优先级：CLI `--lang`（主 parser 预扫描，先于 `--help` 生效）/ 环境变量
    `TTM_LANG` > `repos.json settings.lang` > 系统语言检测（Windows GetUserDefault-
-   UILanguage / Unix LANG）> 默认 zh-CN。UI 页头按钮切换：写 localStorage +
+   UILanguage：0x09=英语/0x04=中文；Unix LANG/LC_ALL）> 默认 **en-US**
+   （公开仓库默认语言；`detect_system_lang` 未识别的系统语言同样落入英文）。UI 页头按钮切换：写 localStorage +
    `POST /api/lang`（变更类请求，过 `_guard_mutation` 门控）同步服务端全局
    `CURRENT_LANG`，此后该进程生成的日志/报告/消息随之切换；前端无 localStorage
    记忆时跟随 `/api/state` 回报的服务端语言。**运行时产生的文件名与 JSON 存储值
@@ -147,10 +151,11 @@ python tools/smoke_test_release.py --version v0.1.0
 - UI 任务日志靠 `contextlib.redirect_stdout` 捕获 print（JobManager._run），
   引擎代码必须用传入的 `log` 参数输出而不是自行 print 到别处。
 - 控制台输出依赖 `sys.stdout.reconfigure(line_buffering=True, errors="replace")`，勿移除。
-- `start-manager.bat` 必须保持 **ANSI/GBK 编码 + CRLF 行尾**：cmd 对 UTF-8 批处理及
-  批处理内任何 chcp 切换都存在字节偏移解析 bug（中文行会被拆碎当命令执行）；
-  编辑该文件时勿让工具链转码为 UTF-8。`tools/smoke_test_release.py` 已断言
-  包内该文件为 GBK+CRLF。
+- `start-manager.bat` 必须保持**纯 ASCII 内容 + CRLF 行尾**：历史上该文件含中文
+  输出时必须以 ANSI/GBK 保存（cmd 对 UTF-8 批处理及批处理内任何 chcp 切换都存在
+  字节偏移解析 bug，中文行会被拆碎当命令执行）；现已全英文化，纯 ASCII 在任意
+  代码页/编码下等价安全。`tools/smoke_test_release.py` 已断言包内该文件为
+  ASCII+CRLF。
 - `start-manager.command` 有三个坑，改动后需全部满足：
   1. 文件名保持**纯 ASCII**：双击 .command 时 Finder→Terminal 传递非 ASCII 文件名
      会被错误转码，Terminal 执行乱码路径报「文件不存在」；

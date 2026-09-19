@@ -129,7 +129,8 @@ CSS_URL_RE = re.compile(r"url\(\s*['\"]?(https?://[^)'\"]+)", re.IGNORECASE)
 # ------------------------------------------------------------ 多语言 ----
 
 LANGS = ("zh-CN", "en-US")
-DEFAULT_LANG = "zh-CN"
+# 公开仓库默认语言为英文；中文系统经 detect_system_lang 自动检测仍得到中文界面
+DEFAULT_LANG = "en-US"
 # 当前语言：t() 读取。CLI 由 --lang/TTM_LANG 初始化，UI 由 /api/lang 切换
 # （写入只发生在启动与用户显式切换时，任务线程只读，无并发写风险）
 CURRENT_LANG = DEFAULT_LANG
@@ -162,12 +163,15 @@ def set_lang(lang, persist=False):
 
 
 def detect_system_lang():
-    """探测系统界面语言（仅作首次默认值，失败回退 zh-CN）。"""
+    """探测系统界面语言（仅作首次默认值，失败/未识别回退默认语言 en-US）。"""
     try:
         if sys.platform == "win32":
             import ctypes
-            if ctypes.windll.kernel32.GetUserDefaultUILanguage() & 0xFF == 0x09:
+            primary = ctypes.windll.kernel32.GetUserDefaultUILanguage() & 0xFF
+            if primary == 0x09:  # English
                 return "en-US"
+            if primary == 0x04:  # Chinese
+                return "zh-CN"
         else:
             for var in ("LC_ALL", "LANG"):
                 v = os.environ.get(var, "")
@@ -428,7 +432,7 @@ MESSAGES = {
         "err_ports_busy": "端口 {lo}~{hi} 均被占用",
         # CLI
         "cli_description": "Typora 主题仓库管理器（多仓库下载/安全检查/安装，仅标准库）",
-        "help_lang": "界面/报告/输出语言（默认: settings.lang > 系统语言 > zh-CN）",
+        "help_lang": "界面/报告/输出语言（默认: settings.lang > 系统语言 > en-US）",
         "help_ui": "启动本地网页控制台（不带子命令时的默认行为）",
         "help_no_open": "不自动打开浏览器",
         "help_list": "列出已注册仓库与状态",
@@ -704,7 +708,7 @@ MESSAGES = {
         "err_ports_busy": "Ports {lo}~{hi} are all in use",
         # CLI
         "cli_description": "Typora theme repository manager (multi-repo download / security scan / install; stdlib only)",
-        "help_lang": "UI/report/output language (default: settings.lang > system language > zh-CN)",
+        "help_lang": "UI/report/output language (default: settings.lang > system language > en-US)",
         "help_ui": "Start the local web console (default when no subcommand is given)",
         "help_no_open": "Do not open the browser automatically",
         "help_list": "List registered repos and their status",

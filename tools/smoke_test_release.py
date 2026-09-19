@@ -12,7 +12,7 @@
   2. zip 元数据 —— 条目名纯 ASCII（防平台解压器乱码）；macos/linux 包的
      start-manager.command 必须带 0755 权限位（Windows 解压不恢复权限属预期，
      验证的是包内位，macOS/Linux 解压工具据此恢复）；windows 包的
-     start-manager.bat 必须为 ANSI/GBK + CRLF（cmd 解析要求）
+     start-manager.bat 必须为纯 ASCII + CRLF（cmd 在任意代码页下可正确解析）
   3. CLI 冷启动 —— 以隔离的 APPDATA/HOME 在解压副本上运行子进程，模拟新用户:
      --lang en-US --help / list（应报 0 repositories）/ zh-CN list（中文输出）；
      且 list 后不产生 repos.json（只读命令零写入）
@@ -72,11 +72,11 @@ def check_zip_meta(zip_path, platform):
         zi = next(i for i in infos if i.filename.endswith("start-manager.bat"))
         raw = zf.read(zi)
         try:
-            raw.decode("utf-8")
-            is_gbk = False
+            raw.decode("ascii")
+            is_ascii = True
         except UnicodeDecodeError:
-            is_gbk = True
-        check(is_gbk and b"\r\n" in raw, "start-manager.bat 为 ANSI/GBK + CRLF")
+            is_ascii = False
+        check(is_ascii and b"\r\n" in raw, "start-manager.bat 为纯 ASCII + CRLF")
 
 
 def run_cli(top_dir, sandbox, args, expect_substr=""):

@@ -7,8 +7,8 @@
 
 产物写入 dist/：Typora-Themes-Manager-<版本>-<平台>.zip，解压后为单一顶层目录
 Typora-Themes-Manager-<版本>/。压缩包刻意最小化——只含运行所需文件：
-  通用: theme_manager.py / ui.html / README.md
-  windows 另含: start-manager.bat（ANSI/GBK 编码，勿转存 UTF-8）
+  通用: theme_manager.py / ui.html / README.md / README.zh-CN.md / LICENSE
+  windows 另含: start-manager.bat（纯 ASCII + CRLF）
   macos、linux 另含: start-manager.command（zip 内已置 0755 可执行位，
   create_system=Unix 保证 macOS/Linux 解压工具恢复权限；Windows 资源管理器
   解压会丢失该位，属预期——Windows 用户使用 .bat）
