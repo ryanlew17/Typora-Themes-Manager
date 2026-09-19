@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Typora 主题管理器</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel2:#1d212b; --line:#2a2f3c;
+    --fg:#e6e9f0; --dim:#8b93a7; --accent:#4f8cff; --ok:#3fb950;
+    --warn:#d29922; --danger:#f85149; --radius:12px;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:14px/1.6 system-ui,"Segoe UI","Microsoft YaHei",sans-serif}
+  header{display:flex;align-items:center;gap:16px;padding:14px 22px;
+         border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(15,17,21,.92);
+         backdrop-filter:blur(6px);z-index:5}
+  header h1{font-size:17px;margin:0;font-weight:600}
+  header h1 .dot{color:var(--accent)}
+  header .meta{color:var(--dim);font-size:12px;flex:1;min-width:0;
+               overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  main{max-width:1000px;margin:0 auto;padding:20px 22px 60px}
+  button{font:inherit;color:var(--fg);background:var(--panel2);border:1px solid var(--line);
+         border-radius:8px;padding:5px 12px;cursor:pointer;transition:.15s}
+  button:hover{border-color:var(--accent);color:#fff}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  button.primary:hover{filter:brightness(1.1)}
+  button.ghost{background:transparent}
+  button.danger:hover{border-color:var(--danger);color:var(--danger)}
+  .repos{display:grid;gap:14px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+        padding:16px 18px}
+  .card .head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+  .card .head .name{font-size:16px;font-weight:600}
+  .card .head .slug{color:var(--dim);font-size:12px;text-decoration:none}
+  .card .head .slug:hover{color:var(--accent)}
+  .chips{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 12px}
+  .chip{font-size:12px;padding:2px 10px;border-radius:999px;border:1px solid var(--line);
+        color:var(--dim);background:var(--panel2)}
+  .chip.ok{color:var(--ok);border-color:rgba(63,185,80,.4)}
+  .chip.warn{color:var(--warn);border-color:rgba(210,153,34,.4)}
+  .chip.err{color:var(--danger);border-color:rgba(248,81,73,.4)}
+  .chip.acc{color:var(--accent);border-color:rgba(79,140,255,.4)}
+  .card .note{color:var(--dim);font-size:12px;margin-top:8px}
+  .actions{display:flex;gap:8px;flex-wrap:wrap}
+  .banner{margin:10px 0 0;padding:8px 12px;border-radius:8px;font-size:13px;display:none}
+  .banner.ok{display:block;background:rgba(63,185,80,.1);color:var(--ok)}
+  .banner.err{display:block;background:rgba(248,81,73,.1);color:var(--danger)}
+  .addbar{display:flex;gap:10px;margin:22px 0}
+  .addbar input{flex:1;font:inherit;color:var(--fg);background:var(--panel);
+                border:1px solid var(--line);border-radius:8px;padding:9px 14px;outline:none}
+  .addbar input:focus{border-color:var(--accent)}
+  .console-wrap{background:#0b0d11;border:1px solid var(--line);border-radius:var(--radius);
+                overflow:hidden}
+  .console-head{display:flex;align-items:center;gap:10px;padding:9px 14px;
+                border-bottom:1px solid var(--line);color:var(--dim);font-size:12px}
+  .console-head .live{width:8px;height:8px;border-radius:50%;background:var(--dim)}
+  .console-head.running .live{background:var(--ok);animation:pulse 1s infinite}
+  @keyframes pulse{50%{opacity:.3}}
+  pre#console{margin:0;padding:14px;height:230px;overflow:auto;color:#b9c2d4;
+              font:12px/1.55 Consolas,"Cascadia Code",monospace;white-space:pre-wrap;word-break:break-all}
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;
+         align-items:center;justify-content:center;z-index:20;padding:24px}
+  .modal.show{display:flex}
+  .modal-box{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+             max-width:860px;width:100%;max-height:82vh;display:flex;flex-direction:column}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;
+              padding:12px 18px;border-bottom:1px solid var(--line)}
+  .modal-head b{font-size:15px}
+  .modal-body{padding:16px 18px;overflow:auto}
+  .modal-body pre{margin:0;white-space:pre-wrap;word-break:break-all;
+                  font:12.5px/1.6 Consolas,"Cascadia Code",monospace;color:#c6cede}
+  .modal-body ul{padding-left:20px}
+  .modal-body .mono{font-family:Consolas,monospace;font-size:12.5px}
+  .empty{color:var(--dim);text-align:center;padding:40px 0;border:1px dashed var(--line);
+         border-radius:var(--radius)}
+  body.busy .actions button{opacity:.45;cursor:wait;pointer-events:none}
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="dot">◆</span> <span data-i18n="app_title">Typora 主题管理器</span></h1>
+  <div class="meta" id="meta" data-i18n="meta_loading">加载中 ...</div>
+  <button id="btn-check-all" data-i18n="btn_check_all">检查全部更新</button>
+  <button id="btn-rescan" data-i18n="btn_rescan" data-i18n-title="btn_rescan_title">重新索引本地</button>
+  <button id="btn-refresh" class="ghost" data-i18n="btn_refresh">刷新</button>
+  <button id="btn-lang" class="ghost" title="Language / 语言">English</button>
+</header>
+<main>
+  <section class="repos" id="cards"></section>
+
+  <div class="addbar">
+    <input id="repo-url" data-i18n-ph="input_placeholder"
+           placeholder="粘贴 GitHub 主题仓库地址，如 https://github.com/owner/repo （回车添加）">
+    <button id="btn-add" class="primary" data-i18n="btn_add">添加仓库</button>
+  </div>
+
+  <div class="console-wrap">
+    <div class="console-head" id="console-head">
+      <span class="live"></span><span id="job-label" data-i18n="job_idle">运行日志（空闲）</span>
+    </div>
+    <pre id="console" data-i18n="console_idle">尚无任务。</pre>
+  </div>
+</main>
+
+<div class="modal" id="modal">
+  <div class="modal-box">
+    <div class="modal-head"><b id="modal-title"></b><button id="modal-close" class="ghost" data-i18n="modal_close">关闭</button></div>
+    <div class="modal-body" id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+let busy = false, lastLogLen = 0;
+let curSeq = null;      // 已渲染过日志的任务序号(服务端 seq)
+let handledSeq = null;  // 已处理过结果(横幅/弹窗/刷新)的任务序号——每个任务只处理一次
+let firstPoll = true;
+
+/* ---------------- 多语言 ---------------- */
+
+const LANGS = ["zh-CN", "en-US"];
+const I18N = {
+  "zh-CN": {
+    "app_title": "Typora 主题管理器",
+    "meta_loading": "加载中 ...",
+    "btn_check_all": "检查全部更新",
+    "btn_rescan": "重新索引本地",
+    "btn_rescan_title": "扫描 Typora 主题目录与本地遗留数据，把已存在的主题识别回「已安装」状态（只登记，不改动主题目录）",
+    "btn_refresh": "刷新",
+    "btn_lang": "English",           // 显示切换目标语言名
+    "input_placeholder": "粘贴 GitHub 主题仓库地址，如 https://github.com/owner/repo （回车添加）",
+    "btn_add": "添加仓库",
+    "job_idle": "运行日志（空闲）",
+    "console_idle": "尚无任务。",
+    "modal_close": "关闭",
+    "empty": "还没有注册任何仓库。<br>把主题仓库地址粘贴到下方输入框添加第一个吧。",
+    "meta_line": "主题目录: {dir}　·　保留压缩包: {n} 个/仓库",
+    "themes_dir_missing": "未探测到",
+    "state_fetch_failed": "状态获取失败: {err}",
+    "chip_installed": "已安装 {ver}",
+    "chip_adopted": "已识别安装 · 版本未知",
+    "chip_unregistered": "未登记 · 检出 {n} 个主题",
+    "chip_not_installed": "未安装",
+    "chip_latest": "最新 {tag}",
+    "chip_check_failed": "检查失败",
+    "chip_themes": "{n} 个主题文件",
+    "chip_inferred": "结构自动推断",
+    "btn_check": "检查更新",
+    "btn_install_update": "安装 / 更新",
+    "btn_install": "安装",
+    "btn_clean": "清空重装",
+    "btn_uninstall": "卸载",
+    "btn_report": "报告",
+    "btn_remove": "移除仓库",
+    "kind_check": "检查", "kind_install": "安装", "kind_uninstall": "卸载",
+    "kind_rescan": "重新索引", "kind_check-all": "检查全部", "kind_rescan-all": "重新索引全部",
+    "job_running": "运行中: {kind} · {repo}",
+    "job_recent": "最近任务: {kind} · {repo}",
+    "result_done": "完成",
+    "result_fail": "失败",
+    "mismatch_title": "文件清单与基准不一致 — {repo}",
+    "mismatch_body": "<p>新版压缩包与本地基准清单不一致，已<b>取消安装</b>（未改动主题目录）。"
+                   + "请核对以下差异；确认是上游正常变更（主题改名/增删文件）后再接受新清单。</p>",
+    "mismatch_added": "新增 {n} 个:",
+    "mismatch_removed": "消失 {n} 个:",
+    "mismatch_accept": "接受新版清单并重新安装",
+    "confirm_clean": "清空重装会先备份并移除「该仓库自己的」主题文件，再重新安装。\n其他主题不受影响。继续？",
+    "confirm_uninstall": "卸载该仓库的主题文件？\n文件会先备份到主题目录同级 themes-backup- 目录再移除。",
+    "confirm_remove_data": "是否同时删除本地数据（压缩包/清单/报告）？\n确定=删除数据，取消=仅移出注册表（已装主题文件均保留）。",
+    "confirm_remove": "确认从管理器移除该仓库？",
+    "report_title": "{name} — 安装报告",
+  },
+  "en-US": {
+    "app_title": "Typora Themes Manager",
+    "meta_loading": "Loading ...",
+    "btn_check_all": "Check all updates",
+    "btn_rescan": "Rescan local",
+    "btn_rescan_title": "Scan the Typora themes directory and leftover local data, and re-adopt existing themes as 'installed' (registers only; never touches the themes directory)",
+    "btn_refresh": "Refresh",
+    "btn_lang": "中文",
+    "input_placeholder": "Paste a GitHub theme repo URL, e.g. https://github.com/owner/repo (Enter to add)",
+    "btn_add": "Add repo",
+    "job_idle": "Job log (idle)",
+    "console_idle": "No jobs yet.",
+    "modal_close": "Close",
+    "empty": "No repositories registered yet.<br>Paste a theme repo URL into the box below to add the first one.",
+    "meta_line": "Themes dir: {dir} · Zips kept: {n} per repo",
+    "themes_dir_missing": "not detected",
+    "state_fetch_failed": "Failed to fetch state: {err}",
+    "chip_installed": "installed {ver}",
+    "chip_adopted": "adopted install · version unknown",
+    "chip_unregistered": "unregistered · {n} themes found",
+    "chip_not_installed": "not installed",
+    "chip_latest": "latest {tag}",
+    "chip_check_failed": "check failed",
+    "chip_themes": "{n} theme files",
+    "chip_inferred": "structure auto-inferred",
+    "btn_check": "Check update",
+    "btn_install_update": "Install / Update",
+    "btn_install": "Install",
+    "btn_clean": "Clean reinstall",
+    "btn_uninstall": "Uninstall",
+    "btn_report": "Report",
+    "btn_remove": "Remove repo",
+    "kind_check": "check", "kind_install": "install", "kind_uninstall": "uninstall",
+    "kind_rescan": "rescan", "kind_check-all": "check all", "kind_rescan-all": "rescan all",
+    "job_running": "Running: {kind} · {repo}",
+    "job_recent": "Last job: {kind} · {repo}",
+    "result_done": "done",
+    "result_fail": "failed",
+    "mismatch_title": "File list differs from baseline — {repo}",
+    "mismatch_body": "<p>The new archive differs from the local baseline manifest; the install was "
+                   + "<b>cancelled</b> (the themes directory was not touched). Please review the "
+                   + "differences below; accept the new manifest only if this is a normal upstream "
+                   + "change (theme renames, added/removed files).</p>",
+    "mismatch_added": "{n} added:",
+    "mismatch_removed": "{n} removed:",
+    "mismatch_accept": "Accept the new manifest and reinstall",
+    "confirm_clean": "Clean reinstall backs up and removes ONLY this repo's own theme files, then installs again.\nOther themes are not affected. Continue?",
+    "confirm_uninstall": "Uninstall this repo's theme files?\nFiles are backed up to a themes-backup- directory next to the themes directory before removal.",
+    "confirm_remove_data": "Also delete local data (zips/manifests/reports)?\nOK = delete data, Cancel = remove from the registry only (installed theme files are kept either way).",
+    "confirm_remove": "Remove this repo from the manager?",
+    "report_title": "{name} — Install Report",
+  },
+};
+
+let lang = localStorage.getItem("ttm-lang") || "zh-CN";
+if (!LANGS.includes(lang)) lang = "zh-CN";
+
+function t(key, kw){
+  const tbl = I18N[lang] || {};
+  let s = tbl[key] || I18N["zh-CN"][key] || key;
+  if (kw) for (const [k, v] of Object.entries(kw)) s = s.split("{" + k + "}").join(v);
+  return s;
+}
+
+function kindLabel(kind){
+  return t("kind_" + kind) === ("kind_" + kind) ? kind : t("kind_" + kind);
+}
+
+// 静态文本应用：data-i18n(文本) / data-i18n-title(提示) / data-i18n-ph(占位符)
+function applyI18n(){
+  document.documentElement.lang = lang;
+  document.title = t("app_title");
+  $("#btn-lang").textContent = t("btn_lang");
+  for (const el of document.querySelectorAll("[data-i18n]"))
+    el.textContent = t(el.dataset.i18n);
+  for (const el of document.querySelectorAll("[data-i18n-title]"))
+    el.title = t(el.dataset.i18nTitle);
+  for (const el of document.querySelectorAll("[data-i18n-ph]"))
+    el.placeholder = t(el.dataset.i18nPh);
+}
+
+async function setLang(newLang){
+  if (!LANGS.includes(newLang) || newLang === lang) return;
+  lang = newLang;
+  localStorage.setItem("ttm-lang", lang);
+  applyI18n();
+  try { await api("/api/lang", {method: "POST", body: {lang}}); }
+  catch (e){ /* 同步失败不影响本地切换；后端仍用原语言生成后续消息 */ }
+  refresh();
+}
+
+/* ---------------- 交互 ---------------- */
+
+async function api(path, opts = {}) {
+  opts.headers = Object.assign({"X-Local-Tool": "1"}, opts.headers || {});
+  if (opts.body && typeof opts.body !== "string") {
+    opts.body = JSON.stringify(opts.body);
+    opts.headers["Content-Type"] = "application/json";
+  }
+  const r = await fetch(path, opts);
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || ("HTTP " + r.status));
+  return d;
+}
+
+function esc(s){ const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+function fmtTime(iso){
+  if (!iso) return "";
+  return iso.replace("T", " ").replace("Z", " UTC").slice(0, 16);
+}
+
+function chip(text, cls){ return `<span class="chip ${cls || ""}">${esc(text)}</span>`; }
+
+function render(state){
+  busy = state.busy;
+  document.body.classList.toggle("busy", busy);
+  $("#meta").textContent = t("meta_line",
+    {dir: state.themes_dir || t("themes_dir_missing"), n: state.keep_zips});
+  const wrap = $("#cards");
+  if (!state.repos.length){
+    wrap.innerHTML = `<div class="empty">${t("empty")}</div>`;
+    return;
+  }
+  wrap.innerHTML = state.repos.map(r => {
+    let chips = "";
+    if (r.installed_version)
+      chips += chip(t("chip_installed", {ver: r.installed_version}), r.up_to_date ? "ok" : "warn");
+    else if (r.has_record)
+      chips += chip(t("chip_adopted"), "warn");
+    else if (r.themes_present)
+      chips += chip(t("chip_unregistered", {n: r.themes_present}), "warn");
+    else
+      chips += chip(t("chip_not_installed"), "");
+    if (r.latest && !r.latest.error){
+      chips += chip(t("chip_latest", {tag: r.latest.tag}), r.up_to_date ? "ok" : "acc");
+      if (r.latest.published_at) chips += chip(fmtTime(r.latest.published_at), "");
+    } else if (r.latest){
+      chips += chip(t("chip_check_failed"), "err");
+    }
+    if (r.themes_present) chips += chip(t("chip_themes", {n: r.themes_present}), "");
+    if (r.auto_inferred) chips += chip(t("chip_inferred"), "");
+    const label = (r.installed_version || r.has_record) ? t("btn_install_update") : t("btn_install");
+    return `<div class="card" id="card-${esc(r.id)}">
+      <div class="head">
+        <span class="name">${esc(r.name)}</span>
+        <a class="slug" href="${esc(r.url)}" target="_blank">${esc(r.slug)}</a>
+      </div>
+      <div class="chips">${chips}</div>
+      <div class="banner" id="banner-${esc(r.id)}"></div>
+      <div class="actions">
+        <button data-act="check" data-id="${esc(r.id)}">${esc(t("btn_check"))}</button>
+        <button class="primary" data-act="install" data-id="${esc(r.id)}" data-mode="merge">${esc(label)}</button>
+        <button data-act="install" data-id="${esc(r.id)}" data-mode="clean">${esc(t("btn_clean"))}</button>
+        <button data-act="uninstall" data-id="${esc(r.id)}" class="danger">${esc(t("btn_uninstall"))}</button>
+        <button data-act="report" data-id="${esc(r.id)}" ${r.has_report ? "" : "disabled"}>${esc(t("btn_report"))}</button>
+        <button data-act="remove" data-id="${esc(r.id)}" class="ghost danger">${esc(t("btn_remove"))}</button>
+      </div>
+    </div>`;
+  }).join("");
+  for (const [id, b] of Object.entries(banners))  // 重建卡片后恢复结果横幅
+    banner(id, b.text, b.cls);
+}
+
+const banners = {};  // repo id -> {text, cls}: 结果横幅状态，render() 重建卡片后据此恢复
+
+function banner(id, text, cls){
+  const el = document.getElementById("banner-" + id);
+  if (!el) return;
+  el.className = "banner " + (cls || "");
+  el.textContent = text;
+}
+
+function setBanner(id, text, cls){
+  banners[id] = text ? {text, cls} : null;
+  banner(id, text, cls);
+}
+
+async function refresh(){
+  try {
+    const state = await api("/api/state");
+    if (!localStorage.getItem("ttm-lang") && LANGS.includes(state.lang) && state.lang !== lang){
+      // 本地无记忆时跟随服务端语言（服务端已含系统检测/注册表持久化）
+      lang = state.lang;
+      applyI18n();
+    }
+    render(state);
+  }
+  catch (e){ $("#meta").textContent = t("state_fetch_failed", {err: e.message}); }
+}
+
+async function pollJob(){
+  let j;
+  try { j = await api("/api/job"); } catch (e){ return; }
+  if (typeof j.seq !== "number") j.seq = -1;
+  if (firstPoll){  // 首轮只同步游标；已完成的历史任务不回放结果提示
+    firstPoll = false;
+    curSeq = j.seq;
+    if (!j.running && j.result) handledSeq = j.seq;
+  }
+  const lines = j.log || [];
+  const con = $("#console");
+  if (j.seq !== curSeq){  // 新任务：日志整体重写
+    curSeq = j.seq;
+    lastLogLen = 0;
+  }
+  if (lines.length > lastLogLen){  // 有新增才写，避免完成后每秒追加空行
+    con.textContent = (lastLogLen ? con.textContent + "\n" : "")
+                    + lines.slice(lastLogLen).join("\n");
+    lastLogLen = lines.length;
+    con.scrollTop = con.scrollHeight;
+  }
+  $("#console-head").classList.toggle("running", !!j.running);
+  $("#job-label").textContent = j.running
+    ? t("job_running", {kind: kindLabel(j.kind), repo: j.repo || ""})
+    : (j.result ? t("job_recent", {kind: kindLabel(j.kind), repo: j.repo || ""})
+                : t("job_idle"));
+  if (j.result && !j.running && j.seq !== handledSeq){  // 每个任务的结果只处理一次
+    handledSeq = j.seq;
+    const r = j.result;
+    if (r.ok) setBanner(j.repo, "✓ " + (r.message || t("result_done")), "ok");
+    else if (r.manifest_mismatch) showMismatch(j.repo, r);
+    else setBanner(j.repo, (r.message || t("result_fail")), r.exit_code === 0 ? "ok" : "err");
+    render(await api("/api/state"));
+  }
+}
+
+function showModal(title, bodyHtml){
+  $("#modal-title").textContent = title;
+  $("#modal-body").innerHTML = bodyHtml;
+  $("#modal").classList.add("show");
+}
+
+function showMismatch(repoId, r){
+  const li = a => a.map(f => `<li class="mono">${esc(f)}</li>`).join("");
+  showModal(t("mismatch_title", {repo: repoId}), `
+    ${t("mismatch_body")}
+    ${r.added.length ? `<p>${esc(t("mismatch_added", {n: r.added.length}))}</p><ul>${li(r.added)}</ul>` : ""}
+    ${r.removed.length ? `<p>${esc(t("mismatch_removed", {n: r.removed.length}))}</p><ul>${li(r.removed)}</ul>` : ""}
+    <p><button class="primary" id="accept-manifest">${esc(t("mismatch_accept"))}</button></p>`);
+  $("#accept-manifest").onclick = async () => {
+    $("#modal").classList.remove("show");
+    await startJob(`/api/repos/${encodeURIComponent(repoId)}/install`,
+                   {mode: "merge", update_manifest: true});
+  };
+}
+
+async function startJob(path, body){
+  busy = true;  // 同步置位（在 POST 之前），防止极速连点触发重复任务
+  try { await api(path, {method: "POST", body: body || {}}); }
+  catch (e){ busy = false; alert(e.message); return; }
+  lastLogLen = 0;
+  curSeq = null;              // 新任务日志从零整写
+  $("#console").textContent = "";
+  document.body.classList.add("busy");
+  pollJob();
+}
+
+document.addEventListener("click", async ev => {
+  const btn = ev.target.closest("button[data-act]");
+  if (!btn || busy) return;
+  const id = btn.dataset.id, act = btn.dataset.act;
+  if (act === "check") return startJob(`/api/repos/${encodeURIComponent(id)}/check`);
+  if (act === "install"){
+    const mode = btn.dataset.mode;
+    if (mode === "clean" && !confirm(t("confirm_clean")))
+      return;
+    return startJob(`/api/repos/${encodeURIComponent(id)}/install`, {mode});
+  }
+  if (act === "uninstall"){
+    if (!confirm(t("confirm_uninstall")))
+      return;
+    return startJob(`/api/repos/${encodeURIComponent(id)}/uninstall`);
+  }
+  if (act === "report"){
+    try {
+      const d = await api(`/api/repos/${encodeURIComponent(id)}/report`);
+      showModal(t("report_title", {name: d.name}), `<pre>${esc(d.markdown)}</pre>`);
+    } catch (e){ alert(e.message); }
+    return;
+  }
+  if (act === "remove"){
+    const purge = confirm(t("confirm_remove_data"));
+    if (!confirm(t("confirm_remove"))) return;
+    try {
+      await api(`/api/repos/${encodeURIComponent(id)}?purge=${purge ? 1 : 0}`, {method: "DELETE"});
+      delete banners[id];
+      refresh();
+    } catch (e){ alert(e.message); }
+  }
+});
+
+async function addRepo(){
+  const url = $("#repo-url").value.trim();
+  if (!url) return;
+  try {
+    const d = await api("/api/repos", {method: "POST", body: {url}});
+    $("#repo-url").value = "";
+    await refresh();
+    // 添加后重新索引：识别本地既有安装（含遗留数据恢复）并顺带检查版本
+    startJob(`/api/repos/${encodeURIComponent(d.repo.id)}/rescan`);
+  } catch (e){ alert(e.message); }
+}
+
+$("#btn-add").onclick = addRepo;
+$("#repo-url").addEventListener("keydown", e => { if (e.key === "Enter") addRepo(); });
+$("#btn-refresh").onclick = refresh;
+$("#btn-check-all").onclick = () => startJob("/api/repos/all/check");
+$("#btn-rescan").onclick = () => startJob("/api/repos/all/rescan");
+$("#btn-lang").onclick = () => setLang(lang === "zh-CN" ? "en-US" : "zh-CN");
+$("#modal-close").onclick = () => $("#modal").classList.remove("show");
+$("#modal").addEventListener("click", e => { if (e.target.id === "modal") $("#modal").classList.remove("show"); });
+
+applyI18n();
+refresh();
+setInterval(pollJob, 1000);
+setInterval(() => { if (!busy) refresh(); }, 5000);
+</script>
+</body>
+</html>
