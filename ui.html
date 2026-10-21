@@ -48,6 +48,10 @@
   .banner{margin:10px 0 0;padding:8px 12px;border-radius:8px;font-size:13px;display:none}
   .banner.ok{display:block;background:rgba(63,185,80,.1);color:var(--ok)}
   .banner.err{display:block;background:rgba(248,81,73,.1);color:var(--danger)}
+  .banner.warn{display:block;background:rgba(210,153,34,.1);color:var(--warn)}
+  .security-warning{border:1px solid var(--warn);border-radius:8px;padding:12px 14px;
+                    margin:0 0 16px;color:var(--warn);background:rgba(210,153,34,.08)}
+  .remote-hosts{font:14px/1.8 Consolas,monospace;overflow-wrap:anywhere}
   .addbar{display:flex;gap:10px;margin:22px 0}
   .addbar input{flex:1;font:inherit;color:var(--fg);background:var(--panel);
                 border:1px solid var(--line);border-radius:8px;padding:9px 14px;outline:none}
@@ -89,6 +93,7 @@
   <button id="btn-lang" class="ghost" title="Language / 语言">English</button>
 </header>
 <main>
+  <aside class="security-warning" role="note" data-i18n="installer_warning">勿手动运行压缩包内的安装器或脚本。本工具从不执行它们，且 .bat/.cmd 不做内容扫描。</aside>
   <section class="repos" id="cards"></section>
 
   <div class="addbar">
@@ -105,7 +110,7 @@
   </div>
 </main>
 
-<div class="modal" id="modal">
+<div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
   <div class="modal-box">
     <div class="modal-head"><b id="modal-title"></b><button id="modal-close" class="ghost" data-i18n="modal_close">关闭</button></div>
     <div class="modal-body" id="modal-body"></div>
@@ -162,6 +167,12 @@ const I18N = {
     "job_recent": "最近任务: {kind} · {repo}",
     "result_done": "完成",
     "result_fail": "失败",
+    "installer_warning": "勿手动运行压缩包内的安装器或脚本。本工具从不执行它们，且 .bat/.cmd 不做内容扫描。",
+    "remote_title": "确认主题外联 — {repo}",
+    "remote_warning": "使用此主题时，Typora 可能连接以下远程主机，向其暴露你的 IP 地址和使用时间。安装尚未写入主题目录，请核对后决定是否继续。",
+    "remote_scope": "清单来自压缩包 CSS 的静态扫描，仅列出直接引用的主机；远程样式还可能加载其他主机的资源。",
+    "remote_accept": "同意这些外联并继续安装",
+    "remote_cancel": "取消安装",
     "mismatch_title": "文件清单与基准不一致 — {repo}",
     "mismatch_body": "<p>新版压缩包与本地基准清单不一致，已<b>取消安装</b>（未改动主题目录）。"
                    + "请核对以下差异；确认是上游正常变更（主题改名/增删文件）后再接受新清单。</p>",
@@ -212,6 +223,12 @@ const I18N = {
     "job_recent": "Last job: {kind} · {repo}",
     "result_done": "done",
     "result_fail": "failed",
+    "installer_warning": "Do not manually run installers or scripts from downloaded archives. This tool never executes them, and .bat/.cmd contents are not scanned.",
+    "remote_title": "Confirm remote theme resources — {repo}",
+    "remote_warning": "When using this theme, Typora may contact the following hosts and expose your IP address and usage times. The themes directory is unchanged. Review these hosts before continuing.",
+    "remote_scope": "This static scan lists hosts directly referenced in the archive's CSS. Remote styles may load resources from additional hosts.",
+    "remote_accept": "Allow these connections and continue",
+    "remote_cancel": "Cancel installation",
     "mismatch_title": "File list differs from baseline — {repo}",
     "mismatch_body": "<p>The new archive differs from the local baseline manifest; the install was "
                    + "<b>cancelled</b> (the themes directory was not touched). Please review the "
@@ -394,6 +411,10 @@ async function pollJob(){
     handledSeq = j.seq;
     const r = j.result;
     if (r.ok) setBanner(j.repo, "✓ " + (r.message || t("result_done")), "ok");
+    else if (r.remote_confirmation_required){
+      setBanner(j.repo, r.message, "warn");
+      showRemoteConfirmation(j.repo, r);
+    }
     else if (r.manifest_mismatch) showMismatch(j.repo, r);
     else setBanner(j.repo, (r.message || t("result_fail")), r.exit_code === 0 ? "ok" : "err");
     render(await api("/api/state"));
@@ -406,6 +427,26 @@ function showModal(title, bodyHtml){
   $("#modal").classList.add("show");
 }
 
+function showRemoteConfirmation(repoId, r){
+  showModal(t("remote_title", {repo: repoId}), `
+    <p class="security-warning">${esc(t("remote_warning"))}</p>
+    <ul class="remote-hosts">${r.remote_hosts.map(host => `<li>${esc(host)}</li>`).join("")}</ul>
+    <p>${esc(t("remote_scope"))}</p>
+    <p>${esc(t("installer_warning"))}</p>
+    <div class="actions">
+      <button id="cancel-remote">${esc(t("remote_cancel"))}</button>
+      <button class="primary" id="accept-remote">${esc(t("remote_accept"))}</button>
+    </div>`);
+  $("#cancel-remote").onclick = () => $("#modal").classList.remove("show");
+  $("#accept-remote").onclick = async () => {
+    if (busy) return;
+    $("#accept-remote").disabled = true;
+    $("#modal").classList.remove("show");
+    await startJob(`/api/repos/${encodeURIComponent(repoId)}/install`,
+                   {...r.install_options, approved_remote_hosts: r.remote_hosts});
+  };
+}
+
 function showMismatch(repoId, r){
   const li = a => a.map(f => `<li class="mono">${esc(f)}</li>`).join("");
   showModal(t("mismatch_title", {repo: repoId}), `
@@ -414,9 +455,11 @@ function showMismatch(repoId, r){
     ${r.removed.length ? `<p>${esc(t("mismatch_removed", {n: r.removed.length}))}</p><ul>${li(r.removed)}</ul>` : ""}
     <p><button class="primary" id="accept-manifest">${esc(t("mismatch_accept"))}</button></p>`);
   $("#accept-manifest").onclick = async () => {
+    if (busy) return;
+    $("#accept-manifest").disabled = true;
     $("#modal").classList.remove("show");
     await startJob(`/api/repos/${encodeURIComponent(repoId)}/install`,
-                   {mode: "merge", update_manifest: true});
+                   {...r.install_options, update_manifest: true});
   };
 }
 
@@ -424,6 +467,7 @@ async function startJob(path, body){
   busy = true;  // 同步置位（在 POST 之前），防止极速连点触发重复任务
   try { await api(path, {method: "POST", body: body || {}}); }
   catch (e){ busy = false; alert(e.message); return; }
+  firstPoll = false;         // 用户刚启动的任务必须处理结果，即使首次定时轮询尚未发生
   lastLogLen = 0;
   curSeq = null;              // 新任务日志从零整写
   $("#console").textContent = "";

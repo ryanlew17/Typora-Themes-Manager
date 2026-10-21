@@ -33,6 +33,7 @@ Typora 主题仓库（在 repos.json 中注册即可，添加新仓库时自动�
   python theme_manager.py themes-dir                             # 显示主题目录
 
 退出码: 0=成功  1=下载/查询失败  2=安全检查不通过  3=安装失败  4=文件清单不一致
+        5=暂停等待CSS远程主机确认(未做任何改动)
 """
 
 import argparse
@@ -52,6 +53,7 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 import webbrowser
 import zipfile
@@ -62,7 +64,8 @@ CONFIG_PATH = SCRIPT_DIR / "repos.json"
 DATA_DIR = SCRIPT_DIR / "repos"
 UI_FILE = SCRIPT_DIR / "ui.html"
 REPORT_NAME = "install-report.md"
-USER_AGENT = "Typora-Themes-Manager/2.0 (local; Python-urllib)"
+VERSION = "0.1.1"
+USER_AGENT = "Typora-Themes-Manager/%s (local; Python-urllib)" % VERSION
 DEFAULT_PORT = 17888
 
 # 网络超时(秒)：收紧失败反馈；下载大文件单独放宽
@@ -76,6 +79,9 @@ EXIT_DOWNLOAD = 1
 EXIT_SECURITY = 2
 EXIT_INSTALL = 3
 EXIT_MANIFEST = 4
+# CSS 远程主机待确认：安装已在任何写入之前暂停。与 2（安全检查不通过）分开，
+# 让脚本化调用能区分「内容有恶意」与「等待用户确认外联」
+EXIT_CONFIRM = 5
 
 SEV_ORDER = {"BLOCK": 0, "WARN": 1, "INFO": 2}
 
@@ -123,7 +129,10 @@ SCRIPT_RULES = [
 DELETE_RE = re.compile(r"^\s*(?:@\w+\s+)?(?:.*\s)?\b(del|erase|rd|rmdir|rm)\b", re.IGNORECASE)
 SAFE_SCOPE_HINTS_BASE = ("theme_dir", "%appdata%", "themes", "typora", "%~dp0", "script_dir")
 
-CSS_URL_RE = re.compile(r"url\(\s*['\"]?(https?://[^)'\"]+)", re.IGNORECASE)
+CSS_URL_KW_RE = re.compile(r"url\(|@import", re.IGNORECASE)
+CSS_REMOTE_RE = re.compile(r"^(?:https?:)?//", re.IGNORECASE)
+CSS_ESCAPE_RE = re.compile(r"\\(?:([0-9a-fA-F]{1,6})(?:\r\n|[ \t\r\n\f])?|(\r\n|[\r\n\f])|(.))",
+                           re.DOTALL)
 
 
 # ------------------------------------------------------------ 多语言 ----
@@ -214,6 +223,7 @@ MESSAGES = {
         "err_no_asset_name": "GitHub API 限流，且无法推断 release 资产名，请稍后重试",
         "err_no_zip_asset": "最新 release 没有可用的 zip 资产",
         "err_multi_zip": "release 含多个 zip 资产({assets})，请在 repos.json 中为仓库 {id} 配置 asset_re",
+        "err_asset_name": "无效的下载文件名: {name}",
         "dl_skip": "  本地已存在同版本文件，跳过下载: {name}",
         "dl_progress": "\r  下载中 {mb:.1f} MB",
         "dl_done": "\r  下载完成: {name} ({mb:.2f} MB)",
@@ -292,8 +302,11 @@ MESSAGES = {
                        "bat/cmd {bat} 个（按约定跳过内容分析，本工具不执行它们）",
         "sec3_integrity_ok": "- 完整性(CRC)与路径穿越(zip-slip)检查: 通过",
         "sec3_integrity_bad": "- 完整性(CRC)与路径穿越(zip-slip)检查: 发现问题，见下表",
-        "sec3_remote": "- CSS 远程资源引用: {hosts}（主题字体走 CDN 属常见做法，仅记录，不影响本地文件安装）",
-        "sec3_clean": "未发现任何可疑行为（无联网/上传、无扫盘枚举、无持久化、无越权删除）。",
+        "sec3_remote": "- CSS 远程资源主机: {hosts}（使用主题时可能向这些主机发起请求，暴露 IP 地址与使用时间；安装前需确认）",
+        "remote_confirm_msg": "安装已暂停，主题目录未改动。请确认是否允许主题使用远程资源: {hosts}",
+        "remote_confirm_cli": "请先核对主机清单；同意后重新安装，为每个主机重复添加 --allow-remote-host HOST。",
+        "err_remote_hosts": "approved_remote_hosts 必须是主机名字符串列表",
+        "sec3_clean": "已扫描的脚本未命中审查规则；CSS 远程主机及未扫描的 bat/cmd 文件见上方统计。",
         "sec3_fail_line": "**安全检查结论: ❌ 不通过（BLOCK {block} 条，WARN {warn} 条），已中止安装，未解压、未执行任何脚本。**",
         "sec3_fail_log": "  安全检查不通过: BLOCK {n} 条, 已中止",
         "sec3_fail_msg": "安全检查未通过(BLOCK {n} 条)，本次未做任何安装改动",
@@ -441,6 +454,7 @@ MESSAGES = {
         "help_install": "安装/更新指定仓库的主题",
         "help_mode": "merge=合并保留现有主题(默认), clean=清空重装(仅本仓库文件, 先备份)",
         "help_update_manifest": "以当前压缩包重建基准清单(人工核对差异报告后使用)",
+        "help_allow_remote_host": "允许主题使用指定的 CSS 远程主机（核对清单后使用，可重复指定）",
         "help_keep_zips": "保留的最新版本压缩包数量(默认取 repos.json 中的 settings.keep_zips)",
         "help_uninstall": "卸载指定仓库的主题(先备份)",
         "help_add": "添加新仓库(URL 或 owner/repo)",
@@ -476,6 +490,7 @@ MESSAGES = {
         "err_no_asset_name": "GitHub API is rate-limited and the release asset name cannot be inferred; try again later",
         "err_no_zip_asset": "The latest release has no usable zip asset",
         "err_multi_zip": "Release contains multiple zip assets ({assets}); please set asset_re for repo {id} in repos.json",
+        "err_asset_name": "Invalid download filename: {name}",
         "dl_skip":  "  Same-version file already exists locally, skipping download: {name}",
         "dl_progress": "\r  Downloading {mb:.1f} MB",
         "dl_done": "\r  Download complete: {name} ({mb:.2f} MB)",
@@ -554,10 +569,14 @@ MESSAGES = {
                        "{bat} bat/cmd (content analysis skipped by convention; this tool never executes them)",
         "sec3_integrity_ok": "- Integrity (CRC) and path traversal (zip-slip) checks: passed",
         "sec3_integrity_bad": "- Integrity (CRC) and path traversal (zip-slip) checks: problems found, see table below",
-        "sec3_remote": "- CSS remote resource references: {hosts} (theme fonts via CDN are common practice; recorded only, "
-                       "does not affect local file installation)",
-        "sec3_clean": "No suspicious behavior found (no network/upload, no drive enumeration, no persistence, "
-                      "no out-of-scope deletion).",
+        "sec3_remote": "- CSS remote resource hosts: {hosts} (using this theme may contact these hosts and expose "
+                       "your IP address and usage times; confirmation required before installation)",
+        "remote_confirm_msg": "Installation paused; the themes directory is unchanged. Confirm whether to allow "
+                              "remote theme resources from: {hosts}",
+        "remote_confirm_cli": "Review the host list first; to consent, retry with --allow-remote-host HOST "
+                              "repeated for each host.",
+        "err_remote_hosts": "approved_remote_hosts must be a list of hostname strings",
+        "sec3_clean": "No review rules matched the scanned scripts; see the CSS hosts and unscanned bat/cmd counts above.",
         "sec3_fail_line": "**Security scan verdict: ❌ FAILED (BLOCK {block}, WARN {warn}); installation aborted — "
                           "nothing was extracted and no script was executed.**",
         "sec3_fail_log": "  Security scan failed: {n} BLOCK findings, aborted",
@@ -719,6 +738,7 @@ MESSAGES = {
         "help_mode": "merge=keep existing themes (default), clean=clean reinstall (this repo's files only, backs up first)",
         "help_update_manifest": "Rebuild the baseline manifest from the current archive (use after manually reviewing "
                                 "the diff report)",
+        "help_allow_remote_host": "Allow a CSS remote host after reviewing the host list (repeat for each host)",
         "help_keep_zips": "Number of latest-version zips to keep (default: settings.keep_zips in repos.json)",
         "help_uninstall": "Uninstall the given repo's themes (backs up first)",
         "help_add": "Add a new repository (URL or owner/repo)",
@@ -745,6 +765,9 @@ MESSAGES = {
 
 def load_config():
     if not CONFIG_PATH.exists():
+        # clone/解压后的首次运行，只读命令（list/check/--help）也不落盘——
+        # 保持「只读命令零写入」约定（smoke_test_release 有断言）；默认注册表
+        # 由控制台启动（run_ui → ensure_default_config）或首次变更类操作写入。
         return {"settings": {"keep_zips": 2}, "repos": {}}
     try:
         data = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
@@ -760,8 +783,28 @@ def load_config():
 
 
 def save_config(cfg_all):
-    CONFIG_PATH.write_text(json.dumps(cfg_all, ensure_ascii=False, indent=2) + "\n",
-                           encoding="utf-8")
+    _write_config_atomic(cfg_all)
+
+
+def ensure_default_config():
+    """首次运行（网页控制台启动）生成默认注册表；已存在则不动。
+    原子写且不取 CONFIG_LOCK——冷启动时尚无并发写者，内容确定故无害。"""
+    if CONFIG_PATH.exists():
+        return
+    _write_config_atomic({"settings": {"keep_zips": 2}, "repos": {}})
+
+
+def _write_config_atomic(cfg_all):
+    """先写临时文件再 os.replace，避免并发或中断在磁盘上留下半截 repos.json。"""
+    tmp = CONFIG_PATH.with_name("%s.tmp-%d-%x" % (CONFIG_PATH.name, os.getpid(),
+                                                  threading.get_ident()))
+    try:
+        tmp.write_text(json.dumps(cfg_all, ensure_ascii=False, indent=2) + "\n",
+                       encoding="utf-8")
+        os.replace(tmp, CONFIG_PATH)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
 
 
 # repos.json 读改写锁：并行任务(检查全部/重新索引全部)与网页端增删仓库可能同时写注册表，
@@ -952,8 +995,11 @@ def _zip_readable(path):
 
 def download_asset(asset, dest_dir, log=print):
     """返回 (文件路径, 是否新下载)；已存在同名且同大小(或本身完好)的文件则跳过。"""
+    # 远端元数据不作为路径使用；同时处理两种分隔符，避免跨平台路径穿越。
+    name = Path(asset["name"].replace("\\", "/")).name
+    if name in ("", ".", "..") or ":" in name or "\x00" in name:
+        raise RuntimeError(t("err_asset_name", name=asset["name"]))
     dest_dir.mkdir(parents=True, exist_ok=True)
-    name = asset["name"]
     expected = int(asset.get("size") or 0)
     dest = dest_dir / name
     if dest.exists() and (not expected or dest.stat().st_size == expected) \
@@ -1047,6 +1093,104 @@ def read_zip_text(zf, name):
     return raw.decode("utf-8", errors="replace")
 
 
+def _css_tokens(text):
+    """把 CSS 词法切分为 (kind, value) 序列，kind ∈ code/string；注释折算为
+    一个空格并入 code。只切分不解析语法：字符串边界遵循 CSS 转义规则
+    （\\" 不闭合），从而把 content:"url(https://…)" 这类字符串内文本与
+    真实引用区分开。"""
+    tokens, buf = [], []
+    i, n = 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch == "/" and text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+            buf.append(" ")
+            continue
+        if ch in "\"'":
+            j = i + 1
+            while j < n and text[j] != ch:
+                j += 2 if text[j] == "\\" else 1  # 转义字符不闭合字符串
+            tokens.append(("code", "".join(buf)))
+            buf = []
+            tokens.append(("string", text[i + 1:j]))
+            i = j + 1
+            continue
+        buf.append(ch)
+        i += 1
+    tokens.append(("code", "".join(buf)))
+    return tokens
+
+
+def _url_operand(rest, tokens, idx):
+    """提取 url( 的操作数：裸值取到右括号；引号值要求 url( 与引号之间仅空白，
+    操作数即紧随的字符串字面量内容。"""
+    if not rest.strip():
+        nxt = tokens[idx + 1] if idx + 1 < len(tokens) else None
+        return nxt[1] if nxt and nxt[0] == "string" else ""
+    return rest.split(")", 1)[0]
+
+
+def normalize_host(host):
+    """主机名归一化：去空白与尾部点、转小写、IDNA 转 ASCII（punycode），使扫描
+    值与 --allow-remote-host 手输值（unicode/punycode 两种写法）可互相匹配；
+    含非法字符（下划线等）或超长标签编码失败时保留原样——两侧同用本函数仍精确匹配。"""
+    host = (host or "").strip().lower().rstrip(".")
+    if not host:
+        return ""
+    try:
+        return host.encode("idna").decode("ascii").lower()
+    except (UnicodeError, ValueError):
+        return host
+
+
+def _remote_host_of(operand):
+    """操作数是 http(s)/协议相对 URL 时返回归一化主机名，否则 None。"""
+    operand = operand.strip()
+    if not CSS_REMOTE_RE.match(operand):
+        return None
+    try:
+        host = urllib.parse.urlsplit(
+            "https:" + operand if operand.startswith("//") else operand).hostname
+    except ValueError:
+        return None
+    return normalize_host(host) if host else None
+
+
+def css_remote_hosts(text):
+    """静态列出 CSS url()/@import 直接引用的 HTTP(S) 主机，不发起网络请求。
+    原文与反转义各扫一遍（覆盖 \\75rl 之类转义混淆）；只有字符串字面量之外、
+    处于语法位置的 url(/@import 才计入，content:"…" 内的同形文本不算引用。"""
+    def unescape(match):
+        codepoint, newline, char = match.groups()
+        if codepoint:
+            value = int(codepoint, 16)
+            return chr(value) if 0 < value <= 0x10FFFF and not 0xD800 <= value <= 0xDFFF else "\ufffd"
+        return "" if newline else char
+
+    hosts = set()
+    for variant in (text, CSS_ESCAPE_RE.sub(unescape, text)):
+        tokens = _css_tokens(variant)
+        for idx, (kind, value) in enumerate(tokens):
+            if kind != "code":
+                continue
+            for m in CSS_URL_KW_RE.finditer(value):
+                rest = value[m.end():]
+                if m.group(0).lower() == "url(":
+                    operand = _url_operand(rest, tokens, idx)
+                # @import 的字符串操作数：关键字与引号之间只允许空白（含被折算
+                # 成空格的注释），如 @import "x" / @import/**/"x"
+                elif not rest.strip() and idx + 1 < len(tokens) \
+                        and tokens[idx + 1][0] == "string":
+                    operand = tokens[idx + 1][1]
+                else:
+                    operand = ""
+                host = _remote_host_of(operand)
+                if host:
+                    hosts.add(host)
+    return hosts
+
+
 def security_scan(zip_path, cfg, log=print):
     """返回 (是否通过, 发现列表, 统计信息)。发现项为 dict(file, line, sev, desc, text)。"""
     findings = []
@@ -1096,8 +1240,7 @@ def security_scan(zip_path, cfg, log=print):
                                  "desc": t("sec_pe_binary", ext=ext), "text": ""})
             elif ext == ".css":
                 stats["css"] += 1
-                for m in CSS_URL_RE.finditer(read_zip_text(zf, name)):
-                    stats["remote_hosts"].add(m.group(1).split("/")[2])
+                stats["remote_hosts"].update(css_remote_hosts(read_zip_text(zf, name)))
             elif ext in FONT_EXTS:
                 stats["fonts"] += 1
 
@@ -1342,15 +1485,20 @@ def findings_table(rep, findings):
 
 # ------------------------------------------------------------ 主流程: 安装 ----
 
-def run_install(cfg, mode="merge", update_manifest=False, keep_zips=None, log=print):
+def run_install(cfg, mode="merge", update_manifest=False, keep_zips=None, log=print,
+                approved_remote_hosts=None):
     """完整流水线。返回 (退出码, 结果 dict 供界面展示)。"""
+    approved_remote_hosts = sorted({normalize_host(host)
+                                    for host in (approved_remote_hosts or [])} - {""})
     cfg_all = load_config()
     if keep_zips is None:
         keep_zips = int(cfg_all["settings"].get("keep_zips", 2))
     rd = repo_dir(cfg)
     rep = Report(cfg, t("sub_merge") if mode == "merge" else t("sub_clean"))
     result = {"ok": False, "exit_code": EXIT_INSTALL, "manifest_mismatch": False,
-              "added": [], "removed": [], "message": ""}
+              "added": [], "removed": [], "message": "",
+              "install_options": {"mode": mode, "update_manifest": update_manifest,
+                                  "approved_remote_hosts": approved_remote_hosts}}
     try:
         # ---- 1. 获取最新 release ----
         log(t("step_release"))
@@ -1423,6 +1571,18 @@ def run_install(cfg, mode="merge", update_manifest=False, keep_zips=None, log=pr
         rep.add(t("sec3_pass_line", warn=n_warn))
         log(t("sec3_pass_log", n=n_warn))
         rep.add()
+
+        # 同意仅覆盖本次明确列出的主机；重试时如上游增加主机，必须再次确认。
+        # 在推断/保存配置、重建基准清单、清空旧主题或写入主题目录之前暂停。
+        if stats["remote_hosts"] - set(approved_remote_hosts):
+            hosts = sorted(stats["remote_hosts"])
+            msg = t("remote_confirm_msg", hosts=", ".join(hosts))
+            result.update({"remote_confirmation_required": True, "remote_hosts": hosts,
+                           "version": tag, "exit_code": EXIT_CONFIRM, "message": msg})
+            log(msg)
+            log(t("remote_confirm_cli"))
+            rep.finish("⚠️ " + msg, EXIT_CONFIRM)
+            return EXIT_CONFIRM, result
 
         # ---- 3. 结构推断 / 清单比对 ----
         zip_files, top_name = zip_logical_files(zip_path)
@@ -2090,7 +2250,7 @@ JOBS = JobManager()
 
 
 class UiHandler(http.server.BaseHTTPRequestHandler):
-    server_version = "TyporaThemeManager/2.0"
+    server_version = "TyporaThemeManager/" + VERSION
     protocol_version = "HTTP/1.1"
 
     def log_message(self, fmt, *args):  # 安静模式
@@ -2202,8 +2362,12 @@ class UiHandler(http.server.BaseHTTPRequestHandler):
                     mode = body.get("mode", "merge")
                     if mode not in ("merge", "clean"):
                         return self._json({"error": t("err_bad_mode")}, 400)
+                    approved_hosts = body.get("approved_remote_hosts", [])
+                    if not isinstance(approved_hosts, list) or any(not isinstance(h, str) for h in approved_hosts):
+                        return self._json({"error": t("err_remote_hosts")}, 400)
                     fn = lambda log: run_install(cfg, mode=mode,
                                                  update_manifest=bool(body.get("update_manifest")),
+                                                 approved_remote_hosts=approved_hosts,
                                                  log=log)
                 if not JOBS.start(action, repo_id, fn):
                     return self._json({"error": t("err_busy")}, 409)
@@ -2241,6 +2405,7 @@ class UiHandler(http.server.BaseHTTPRequestHandler):
 
 
 def run_ui(port=DEFAULT_PORT, no_open=False):
+    ensure_default_config()  # 首次运行生成默认 repos.json（变更类命令另经 save_config 落盘）
     chosen = None
     for p in range(port, port + 20):
         with socket.socket() as s:
@@ -2327,7 +2492,8 @@ def cmd_install(args):
     cfg = find_repo(load_config(), args.id)
     rc, result = run_install(cfg, mode=args.mode,
                              update_manifest=args.update_manifest,
-                             keep_zips=args.keep_zips)
+                             keep_zips=args.keep_zips,
+                             approved_remote_hosts=args.allow_remote_host)
     if result.get("message"):
         print(result["message"])
     return rc
@@ -2360,6 +2526,7 @@ def main():
     init_lang(pre_args.lang)
 
     parser = argparse.ArgumentParser(description=t("cli_description"))
+    parser.add_argument("--version", action="version", version="%(prog)s " + VERSION)
     parser.add_argument("--lang", default=None, metavar="LANG",
                         help=t("help_lang"))
     sub = parser.add_subparsers(dest="cmd")
@@ -2385,6 +2552,8 @@ def main():
                        help=t("help_mode"))
     p_ins.add_argument("--update-manifest", action="store_true",
                        help=t("help_update_manifest"))
+    p_ins.add_argument("--allow-remote-host", action="append", default=[], metavar="HOST",
+                       help=t("help_allow_remote_host"))
     p_ins.add_argument("--keep-zips", type=int, default=None, metavar="N",
                        help=t("help_keep_zips"))
     p_ins.set_defaults(func=cmd_install)

@@ -10,9 +10,10 @@
 （`DEFAULT_LANG = "en-US"`，即无线索/未识别系统语言时的兜底；中文系统经
 系统检测仍自动获得中文界面）。**git 用于版本管理与发布**：远程 `origin` 已配置
 （github.com/ryanlew17/Typora-Themes-Manager）；历史在 v0.1.0 发布时**重新初始化**
-（旧开发历史不保留），此后正常提交/推送。`repos/` 运行数据已被 `.gitignore`
-完全排除、不入库；其数据出问题直接删除即可，库内文件仍可
-`git checkout -- <file>` 回滚。
+（旧开发历史不保留），此后正常提交/推送。`repos/` 运行数据与 `repos.json` 注册表
+均已被 `.gitignore` 完全排除、不入库（各机器主题目录与已注册仓库不同，注册表属于
+本机运行数据；删除后由控制台启动重新生成默认空注册表，只读命令零写入）；运行数据出
+问题直接删除即可，库内文件仍可 `git checkout -- <file>` 回滚。
 
 ## 文件说明
 
@@ -36,7 +37,10 @@
   探测 Python 3.8+（先 py 启动器后 python，微软商店占位程序与低版本视为未安装），
   无环境时英文报错并自动打开 python.org 下载页，结尾 pause/read 防止窗口闪退；
   **两脚本注释与输出全英文（纯 ASCII）**——面向公开仓库的各语言用户
-- `repos.json` — 仓库注册表：`settings.keep_zips` + `settings.lang`（UI 切换语言时
+- `repos.json` — 仓库注册表（**运行数据，.gitignore 排除、不入库**；缺失时由控制台
+  启动 `ensure_default_config` 生成默认空注册表，临时文件 + `os.replace` 原子落盘；
+  `load_config` 缺文件时只返回默认值**不落盘**——只读命令 list/check 保持零写入，
+  `smoke_test_release` 对此有断言）：`settings.keep_zips` + `settings.lang`（UI 切换语言时
   持久化于此）+ `repos`（**以 id 为键的有序字典**；
   旧列表格式由 `load_config` 自动迁移并回写）。每仓库配置 css_dir / theme_re /
   assets_dirs / bridge / min_themes；`theme_re=null` 表示首次安装时自动推断并回写
@@ -59,6 +63,7 @@ python theme_manager.py check [ID ...]         # 检查最新版本（多仓库�
 python theme_manager.py install ID             # 安装/更新（会真实写入本机 Typora 主题目录！）
 python theme_manager.py install ID --mode clean       # 清空重装（仅本仓库文件，先备份）
 python theme_manager.py install ID --update-manifest  # 清单被拦截后，人工核对差异再重建
+python theme_manager.py install ID --allow-remote-host HOST  # 同意指定 CSS 远程主机（可重复）
 python theme_manager.py uninstall ID           # 卸载（先备份到 themes-backup-<id>-*-uninstall/）
 python theme_manager.py add <URL>              # 添加新仓库（先检索本地遗留数据与主题目录，已装则直接恢复）
 python theme_manager.py rescan [ID ...]        # 重新索引：刷新版本缓存+识别既有安装（只登记不写主题目录）
@@ -69,10 +74,12 @@ python tools/smoke_test_release.py --version v0.1.0
                                                # 冒烟测试（沙盒解压+CLI 冷启动，发版前必跑）
 ```
 
-退出码：0 成功 / 1 下载或查询失败 / 2 安全检查不通过 / 3 安装失败 / 4 清单不一致。
+退出码：0 成功 / 1 下载或查询失败 / 2 安全检查不通过 / 3 安装失败 / 4 清单不一致 /
+5 暂停等待 CSS 远程主机确认（未做任何改动）。
 
-无测试框架。验证方式：`list`/`check` 只读安全；完整 `install` 会改写
-`%APPDATA%\Typora\themes`，非必要别跑。
+测试：`test_theme_manager.py`（unittest，mock 隔离网络/主题目录/注册表，可安全直跑：
+`python3 -m unittest test_theme_manager`）。此外 `list`/`check` 只读安全；完整
+`install` 会改写 `%APPDATA%\Typora\themes`，非必要别跑。
 
 ## 关键设计约束（改动前必读）
 
@@ -119,7 +126,18 @@ python tools/smoke_test_release.py --version v0.1.0
    否则 null=版本未知）。
 10. **repos.json 并发写保护**：并行任务（check-all/rescan-all 的 ThreadPoolExecutor）
    与 UI 增删仓库可能同时写注册表，所有「load → 修改 → save」必须整体持
-   `CONFIG_LOCK`（单仓库回写用 `update_repo_cfg`），否则互相丢更新。
+   `CONFIG_LOCK`（单仓库回写用 `update_repo_cfg`），否则互相丢更新。落盘统一走
+   `_write_config_atomic`（临时文件 + `os.replace`）；`ensure_default_config`
+   **刻意不取锁**（冷启动时尚无并发写者，默认内容确定，覆盖检查 + 原子替换无害）。
+11. **CSS 远程主机确认门**：`security_scan` 静态提取压缩包内 CSS `url()`/`@import`
+   直接引用的 HTTP(S) 主机（`css_remote_hosts`：字符串/注释感知的词法扫描，
+   原文与反转义各一遍防 `\75rl` 转义混淆；`content:"url(...)"` 等字符串内同形
+   文本**不算**引用；主机经 `normalize_host` 归一化——小写/去尾点/IDNA punycode）。
+   存在未同意主机时安装**在任何写入之前暂停**（推断/清单重建/清空/写主题目录均
+   未发生），退出码 **5**（与安全检查不通过的 2 区分），UI 弹窗确认 /
+   CLI `--allow-remote-host HOST` 逐主机同意；同意仅覆盖本次列出的主机，
+   上游新增主机需再次确认。重试参数经 `result["install_options"]` 随结果带回
+   前端（mismatch 弹窗重试时保留原 mode 与已同意主机）。
 
 ## GitHub 网络层
 
@@ -168,10 +186,14 @@ python tools/smoke_test_release.py --version v0.1.0
      兜底输出编码。验证双击路径用 `open start-manager.command`。
 - UI 实测若要隔离真实主题目录：让服务进程的 `APPDATA` 指向临时目录即可（进程内
   包装脚本最可靠，环境变量可能被后台运行器剥离；install/uninstall 会改写
-  `repos/<id>/installed.json` 与报告，**`repos/` 已不入库，测试产生的数据直接删除
-  即可**；`repos.json` 仍在库内，若被测试改动需 git 恢复）。
+  `repos/<id>/installed.json` 与报告，**`repos/` 与 `repos.json` 均已不入库，
+  测试产生的运行数据直接删除即可**；单测 `test_theme_manager.py` 已把
+  CONFIG_PATH/DATA_DIR/主题目录/网络层全部 mock 到临时目录，直跑无副作用）。
 
-## 已注册仓库
+## 已注册仓库（历史参考）
+
+`repos.json` 自 2026-10 起不入库，以下为原 Windows 开发机的历史注册记录（macOS
+开发机注册表与本机实际安装的仓库不同，以各机 `repos.json` 为准）：
 
 - `typora-theme-phycat`（sumruler/typora-theme-phycat）— `add` 命令添加、结构自动推断的
   示例：根目录 `phycat-*.css` + `phycat/` 字体资源目录，无桥接。
