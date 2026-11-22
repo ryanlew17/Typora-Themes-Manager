@@ -78,6 +78,7 @@
                   font:12.5px/1.6 Consolas,"Cascadia Code",monospace;color:#c6cede}
   .modal-body ul{padding-left:20px}
   .modal-body .mono{font-family:Consolas,monospace;font-size:12.5px}
+  .modal-body input[type=file]{color:var(--fg);margin:8px 0;max-width:100%}
   .empty{color:var(--dim);text-align:center;padding:40px 0;border:1px dashed var(--line);
          border-radius:var(--radius)}
   body.busy .actions button{opacity:.45;cursor:wait;pointer-events:none}
@@ -154,15 +155,19 @@ const I18N = {
     "chip_check_failed": "检查失败",
     "chip_themes": "{n} 个主题文件",
     "chip_inferred": "结构自动推断",
+    "chip_matched": "手动匹配结构",
     "btn_check": "检查更新",
     "btn_install_update": "安装 / 更新",
     "btn_install": "安装",
     "btn_clean": "清空重装",
     "btn_uninstall": "卸载",
     "btn_report": "报告",
+    "btn_match": "手动匹配",
+    "btn_match_title": "选择本地主题文件，按内容哈希与仓库文件对齐并登记（不改动主题目录；适用于自动推断失败或本地文件已自定义的情况）",
     "btn_remove": "移除仓库",
     "kind_check": "检查", "kind_install": "安装", "kind_uninstall": "卸载",
     "kind_rescan": "重新索引", "kind_check-all": "检查全部", "kind_rescan-all": "重新索引全部",
+    "kind_match": "手动匹配",
     "job_running": "运行中: {kind} · {repo}",
     "job_recent": "最近任务: {kind} · {repo}",
     "result_done": "完成",
@@ -179,6 +184,14 @@ const I18N = {
     "mismatch_added": "新增 {n} 个:",
     "mismatch_removed": "消失 {n} 个:",
     "mismatch_accept": "接受新版清单并重新安装",
+    "match_title": "手动匹配 — {repo}",
+    "match_body": "选择本地主题文件（可多选，建议包含主题 CSS 与字体等资源）。"
+                + "算法按内容哈希把它们与全部 release（新→旧）及源码树对齐，来自任一历史版本的文件都能命中；"
+                + "成功匹配的文件连同仓库侧哈希与时间戳一并登记，本操作只登记记录，不会改动主题目录。"
+                + "后续检查更新将按记录的哈希与时间戳比对仓库侧内容"
+                + "（不校验本地文件，因此你自定义过的修改不受影响）。",
+    "match_submit": "上传并匹配",
+    "match_no_files": "请先选择要匹配的文件",
     "confirm_clean": "清空重装会先备份并移除「该仓库自己的」主题文件，再重新安装。\n其他主题不受影响。继续？",
     "confirm_uninstall": "卸载该仓库的主题文件？\n文件会先备份到主题目录同级 themes-backup- 目录再移除。",
     "confirm_remove_data": "是否同时删除本地数据（压缩包/清单/报告）？\n确定=删除数据，取消=仅移出注册表（已装主题文件均保留）。",
@@ -210,15 +223,19 @@ const I18N = {
     "chip_check_failed": "check failed",
     "chip_themes": "{n} theme files",
     "chip_inferred": "structure auto-inferred",
+    "chip_matched": "manually matched structure",
     "btn_check": "Check update",
     "btn_install_update": "Install / Update",
     "btn_install": "Install",
     "btn_clean": "Clean reinstall",
     "btn_uninstall": "Uninstall",
     "btn_report": "Report",
+    "btn_match": "Match files",
+    "btn_match_title": "Pick local theme files and align them with repository files by content hash (registers only; never touches the themes directory; use when auto-inference fails or local files were customized)",
     "btn_remove": "Remove repo",
     "kind_check": "check", "kind_install": "install", "kind_uninstall": "uninstall",
     "kind_rescan": "rescan", "kind_check-all": "check all", "kind_rescan-all": "rescan all",
+    "kind_match": "manual match",
     "job_running": "Running: {kind} · {repo}",
     "job_recent": "Last job: {kind} · {repo}",
     "result_done": "done",
@@ -237,6 +254,15 @@ const I18N = {
     "mismatch_added": "{n} added:",
     "mismatch_removed": "{n} removed:",
     "mismatch_accept": "Accept the new manifest and reinstall",
+    "match_title": "Manual match — {repo}",
+    "match_body": "Choose local theme files (multiple allowed; ideally include the theme CSS plus fonts and other assets). "
+                + "They are aligned by content hash against all releases (newest first) and the source tree, so files from "
+                + "any historical version can match. Successfully matched files are registered together with their "
+                + "repository-side hash and timestamp. This only writes records — the themes directory is never touched. "
+                + "Future update checks compare the recorded hashes and timestamps against the repository side "
+                + "(local files are not checked, so your custom modifications are unaffected).",
+    "match_submit": "Upload and match",
+    "match_no_files": "Please choose files to match first",
     "confirm_clean": "Clean reinstall backs up and removes ONLY this repo's own theme files, then installs again.\nOther themes are not affected. Continue?",
     "confirm_uninstall": "Uninstall this repo's theme files?\nFiles are backed up to a themes-backup- directory next to the themes directory before removal.",
     "confirm_remove_data": "Also delete local data (zips/manifests/reports)?\nOK = delete data, Cancel = remove from the registry only (installed theme files are kept either way).",
@@ -332,6 +358,7 @@ function render(state){
     }
     if (r.themes_present) chips += chip(t("chip_themes", {n: r.themes_present}), "");
     if (r.auto_inferred) chips += chip(t("chip_inferred"), "");
+    if (r.manual_matched) chips += chip(t("chip_matched"), "acc");
     const label = (r.installed_version || r.has_record) ? t("btn_install_update") : t("btn_install");
     return `<div class="card" id="card-${esc(r.id)}">
       <div class="head">
@@ -346,6 +373,7 @@ function render(state){
         <button data-act="install" data-id="${esc(r.id)}" data-mode="clean">${esc(t("btn_clean"))}</button>
         <button data-act="uninstall" data-id="${esc(r.id)}" class="danger">${esc(t("btn_uninstall"))}</button>
         <button data-act="report" data-id="${esc(r.id)}" ${r.has_report ? "" : "disabled"}>${esc(t("btn_report"))}</button>
+        <button data-act="match" data-id="${esc(r.id)}" data-name="${esc(r.name)}" title="${esc(t("btn_match_title"))}">${esc(t("btn_match"))}</button>
         <button data-act="remove" data-id="${esc(r.id)}" class="ghost danger">${esc(t("btn_remove"))}</button>
       </div>
     </div>`;
@@ -467,12 +495,44 @@ async function startJob(path, body){
   busy = true;  // 同步置位（在 POST 之前），防止极速连点触发重复任务
   try { await api(path, {method: "POST", body: body || {}}); }
   catch (e){ busy = false; alert(e.message); return; }
+  beginJob();
+}
+
+function beginJob(){
   firstPoll = false;         // 用户刚启动的任务必须处理结果，即使首次定时轮询尚未发生
   lastLogLen = 0;
   curSeq = null;              // 新任务日志从零整写
   $("#console").textContent = "";
   document.body.classList.add("busy");
   pollJob();
+}
+
+// 手动匹配：multipart 文件上传（不走 JSON 通道），任务化执行，结果走统一轮询
+function showMatch(repoId, repoName){
+  showModal(t("match_title", {repo: repoName || repoId}), `
+    <p>${esc(t("match_body"))}</p>
+    <p><input type="file" id="match-files" multiple></p>
+    <div class="actions"><button class="primary" id="match-submit">${esc(t("match_submit"))}</button></div>`);
+  $("#match-submit").onclick = async () => {
+    const files = $("#match-files").files;
+    if (!files.length){ alert(t("match_no_files")); return; }
+    $("#match-submit").disabled = true;
+    busy = true;  // 同步置位防止重复提交
+    const fd = new FormData();
+    for (const f of files) fd.append("files", f, f.name);
+    try {
+      const r = await fetch(`/api/repos/${encodeURIComponent(repoId)}/match`,
+        {method: "POST", headers: {"X-Local-Tool": "1"}, body: fd});
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.error || ("HTTP " + r.status));
+      $("#modal").classList.remove("show");
+      beginJob();
+    } catch (e){
+      busy = false;
+      $("#match-submit").disabled = false;
+      alert(e.message);
+    }
+  };
 }
 
 document.addEventListener("click", async ev => {
@@ -498,6 +558,7 @@ document.addEventListener("click", async ev => {
     } catch (e){ alert(e.message); }
     return;
   }
+  if (act === "match") return showMatch(id, btn.dataset.name);
   if (act === "remove"){
     const purge = confirm(t("confirm_remove_data"));
     if (!confirm(t("confirm_remove"))) return;
